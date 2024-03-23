@@ -1,0 +1,95 @@
+#include <xc.h>
+#include <stdio.h>
+#include "lcd.h" // Include LCD library for display
+
+// Define pins for light sensor input, LED output, and RTC communication
+#define LIGHT_SENSOR_PIN RB0
+#define LED_PIN RD0
+
+// Global variables
+unsigned int lightIntensity = 0;
+unsigned int prevIntensity = 0;
+unsigned int threshold = 500; // Threshold for light intensity change
+
+// Function prototypes
+void initPIC();
+void initLCD();
+void readLightIntensity();
+void controlLED();
+void displayData();
+
+// Main function
+int main() {
+    initPIC(); // Initialize PIC microcontroller
+    initLCD(); // Initialize LCD display
+
+    while(1) {
+        readLightIntensity(); // Read light intensity from sensor
+        if(abs(lightIntensity - prevIntensity) > threshold) {
+            controlLED(); // Control LED brightness based on intensity change
+            displayData(); // Display data on LCD
+            prevIntensity = lightIntensity; // Update previous intensity value
+        }
+    }
+    return 0;
+}
+
+// Function to initialize the PIC microcontroller
+void initPIC() {
+    TRISB0 = 1; // Configure RB0 as input for light sensor
+    TRISD0 = 0; // Configure RD0 as output for LED
+    // Configure ADC for light intensity reading
+    ADCON1 = 0b00001110; // Set ADC clock, right justify, Vref+ = Vdd, Vref- = Vss
+    ADCON2 = 0b10010101; // Set ADC acquisition time, conversion clock, and result format
+    ADCON0 = 0b00000001; // Enable ADC, select channel 0 (RB0)
+    // Initialize Timer0 for 1 ms interrupt (optional for RTC functionality)
+    T0CS = 0; // Use internal clock (Fosc/4)
+    PSA = 0; // Assign prescaler to Timer0
+    PS0 = 1; PS1 = 1; PS2 = 1; // Set prescaler to 1:128 (1 ms interrupt)
+    TMR0 = 6; // Load Timer0 with initial value for 1 ms interrupt
+    T0IE = 1; // Enable Timer0 overflow interrupt
+    GIE = 1; // Enable global interrupts
+    T0IF = 0; // Clear Timer0 overflow interrupt flag
+    // Initialize PWM module for LED control
+    TRISC2 = 0; // Set RC2 as output for PWM (CCP1 module)
+    CCP1CON = 0b00001100; // Set PWM mode, LSBs of duty cycle, active high
+    PR2 = 249; // Set PWM period (20 ms at Fosc = 8 MHz, prescaler 1:4)
+    T2CKPS0 = 1; T2CKPS1 = 0; // Set Timer2 prescaler to 1:4
+    TMR2ON = 1; // Enable Timer2
+}
+
+// Function to initialize the LCD display
+void initLCD() {
+    lcd_init(); // Initialize LCD
+    lcd_clear(); // Clear LCD display
+    lcd_set_cursor(1, 1); // Set cursor to first line, first position
+    printf("Light Intensity: "); // Display initial message
+}
+
+// Function to read light intensity from sensor
+void readLightIntensity() {
+    GO_DONE = 1; // Start ADC conversion
+    while(GO_DONE); // Wait for conversion to complete
+    lightIntensity = ADRESH << 8 | ADRESL; // Combine high and low bytes of ADC result
+}
+
+// Function to control LED brightness based on light intensity
+void controlLED() {
+    unsigned int dutyCycle = (lightIntensity * 255) / 1023; // Calculate duty cycle for PWM
+    CCPR1L = dutyCycle; // Set PWM duty cycle
+}
+
+// Function to display data on LCD
+void displayData() {
+    lcd_set_cursor(2, 1); // Set cursor to second line, first position
+    printf("Intensity: %4u", lightIntensity); // Display light intensity
+}
+
+// Interrupt service routine for Timer0 overflow (optional for RTC functionality)
+void __interrupt() isr() {
+    if(T0IF) {
+        TMR0 = 6; // Reload Timer0 for 1 ms interrupt
+        T0IF = 0; // Clear Timer0 overflow interrupt flag
+        // Implement RTC functionality here (e.g., update time variables)
+    }
+}
